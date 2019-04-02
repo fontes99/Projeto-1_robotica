@@ -22,12 +22,12 @@ go2 = Twist(Vector3(v2,0,0), Vector3(0,0,0))
 stop = Twist(Vector3(0,0,0), Vector3(0,0,0))
 turnR = Twist(Vector3(0,0,0), Vector3(0,0,-w))
 turnL = Twist(Vector3(0,0,0), Vector3(0,0,w))
+
 q=-1
-# tg = 2.0
-# tt = 1.0
 tg = 1
 tt = .5
 timer = 0
+
 def bateu(dado):
 	global q
 	q = dado.data

@@ -16,7 +16,7 @@ import smach
 import smach_ros
 
 
-def identifica_cor(frame):
+def identifica_cor(frame,margin):
 	'''
 	Segmenta o maior objeto cuja cor é parecida com cor_h (HUE da cor, no espaço HSV).
 	'''
@@ -25,15 +25,12 @@ def identifica_cor(frame):
 	# vermelho puro (H=0) estão entre H=-8 e H=8. 
 	# Precisamos dividir o inRange em duas partes para fazer a detecção 
 	# do vermelho:
+
 	frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
 	cor_menor = np.array([0, 100, 100])
 	cor_maior = np.array([10, 255, 255])
 	segmentado_cor = cv2.inRange(frame_hsv, cor_menor, cor_maior)
-
-	cor_menor = np.array([160, 100, 100])
-	cor_maior = np.array([180, 255, 255])
-	segmentado_cor += cv2.inRange(frame_hsv, cor_menor, cor_maior)
 
 	# A operação MORPH_CLOSE fecha todos os buracos na máscara menores 
 	# que um quadrado 7x7. É muito útil para juntar vários 
@@ -65,13 +62,18 @@ def identifica_cor(frame):
 
 	# Representa a area e o centro do maior contorno no frame
 	font = cv2.FONT_HERSHEY_COMPLEX_SMALL
+	centro = (frame.shape[0]//2, frame.shape[1]//2)
+
 	cv2.putText(frame,"{:d} {:d}".format(*media),(20,100), 1, 4,(255,255,255),2,cv2.LINE_AA)
 	cv2.putText(frame,"{:0.1f}".format(maior_contorno_area),(20,50), 1, 4,(255,255,255),2,cv2.LINE_AA)
+
+	cv2.line(frame,(centro[1]-margin,0),(centro[1]-margin, frame.shape[0]),(0,255,0),1)
+	cv2.line(frame,(centro[1]+margin,0),(centro[1]+margin, frame.shape[0]),(0,255,0),1)
 
 	cv2.imshow('video', frame)
 	cv2.imshow('seg', segmentado_cor)
 	cv2.waitKey(1)
 
-	centro = (frame.shape[0]//2, frame.shape[1]//2)
+	
 
 	return media, centro, maior_contorno_area
