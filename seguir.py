@@ -9,8 +9,18 @@ rostopic pub -1 /cmd_vel geometry_msgs/Twist -- '[0.0, 0.0, 0.0]' '[0.0, 0.0, 0.
 rqt_image_view
 
 '''
-
-
+	# Para renomear a *webcam*
+	# 
+	# 	rosrun topic_tools relay  /cv_camera/image_raw/compressed /kamera
+	# 
+	# Para renomear a câmera simulada do Gazebo
+	# 
+	# 	rosrun topic_tools relay  /camera/rgb/image_raw/compressed /kamera
+	# 
+	# Para renomear a câmera da Raspberry
+	# 
+	# 	rosrun topic_tools relay /raspicam_node/image/compressed /kamera
+	# 
 __author__ = ["Rachel P. B. Moraes", "Igor Montagner", "Fabio Miranda"]
 
 
@@ -27,6 +37,7 @@ from cv_bridge import CvBridge, CvBridgeError
 import cormodule
 import cormodule2
 from std_msgs.msg import UInt8
+from sensor_msgs.msg import LaserScan
 from math import pi
 
 ### ---------- FUNÇÕES -----------------
@@ -55,7 +66,7 @@ def roda_todo_frame(imagem):
 		antes = time.clock()
 		cv_image = bridge.compressed_imgmsg_to_cv2(imagem, "bgr8")
 		cv_image2 = cv_image
-		media, centro, area =  cormodule.identifica_cor(cv_image)
+		media, centro, area =  cormodule.identifica_cor(cv_image,margin)
 		media2, centro2, area2 =  cormodule2.identifica_cor(cv_image2)
 		# print(media)
 		cv_image = cv2.add(cv_image,cv_image2)
@@ -69,8 +80,60 @@ def bateu(dado):
 	q = dado.data
  	print(q)
 
-def bumper(porta):
+def escaneia(dado):
+	global v
+	global w
 
+	dist_minina = 0.15
+
+	dist = dado.ranges
+
+	dist_front = []
+	dist_back = []
+	dist_left = []
+	dist_right = []
+
+	dist_front.append(round(dist[0],2))
+	dist_front.append(round(dist[1],2))
+	dist_front.append(round(dist[-1],2))
+
+	dist_back.append(round(dist[180],2))
+	dist_back.append(round(dist[181],2))
+	dist_back.append(round(dist[179],2))
+
+	dist_left.append(round(dist[89],2))
+	dist_left.append(round(dist[90],2))
+	dist_left.append(round(dist[91],2))
+
+	dist_right.append(round(dist[270],2))
+	dist_right.append(round(dist[271],2))
+	dist_right.append(round(dist[269],2))
+
+	for i in dist_front:
+		if i < dist_minina and i != 0:
+			vel = Twist(Vector3(-v*2,0,0),Vector3(0,0,0))
+			pub.publish(vel)
+		else:
+			pass
+	for i in dist_back:
+		if i < dist_minina and i != 0:
+			vel = Twist(Vector3(v*2,0,0),Vector3(0,0,0))
+			pub.publish(vel)
+		else:
+			pass
+	for i in dist_left:
+		if i < dist_minina and i != 0:
+			vel = Twist(Vector3(-v*2,0,0),Vector3(0,0,-w))
+			pub.publish(vel)
+		else:
+			pass
+	for i in dist_right:
+		if i < dist_minina and i != 0:
+			vel = Twist(Vector3(-v*2,0,0),Vector3(0,0,w))
+			pub.publish(vel)
+		else:
+			pass
+def bumper(porta):
 	if porta == 1:
 		
 		pub.publish(back)
@@ -132,6 +195,7 @@ tt = .5
 timer = 0
 q = -1
 
+v = 0.2
 
 bridge = CvBridge()
 
@@ -139,7 +203,7 @@ TelaMeio = 320
 margin = 20
 
 cv_image = None
-media = []
+media = [0]
 centro = []
 atraso = 0.1E10 # 1 segundo e meio. Em nanossegundos
 area = 0.0 # Variavel com a area do maior contorno
@@ -149,13 +213,7 @@ media2 = []
 centro2 = []
 area2= 0.0 # Variavel com a area do maior contorno
 
-
-
-# Só usar se os relógios ROS da Raspberry e do Linux desktop estiverem sincronizados. 
-# Descarta imagens que chegam atrasadas demais
 check_delay = False 
-
-# A função a seguir é chamada sempre que chega um novo frame
 
 ### -------------------------- PROGRAMA EM SI -------------------------------
 
@@ -164,19 +222,6 @@ if __name__=="__main__":
 
 	topico_imagem = "/kamera"
 	
-	# Para renomear a *webcam*
-	# 
-	# 	rosrun topic_tools relay  /cv_camera/image_raw/compressed /kamera
-	# 
-	# Para renomear a câmera simulada do Gazebo
-	# 
-	# 	rosrun topic_tools relay  /camera/rgb/image_raw/compressed /kamera
-	# 
-	# Para renomear a câmera da Raspberry
-	# 
-	# 	rosrun topic_tools relay /raspicam_node/image/compressed /kamera
-	# 
-
 	recebedor = rospy.Subscriber(topico_imagem, CompressedImage, roda_todo_frame, queue_size=4, buff_size = 2**24)
 	# print("Usando ", topico_imagem)
 
@@ -184,47 +229,39 @@ if __name__=="__main__":
 
 	pub = rospy.Publisher("/cmd_vel", Twist, queue_size = 3 )
 	hit = rospy.Subscriber("/bumper", UInt8, bateu)
+	laser = rospy.Subscriber("/scan",LaserScan, escaneia)
 
 	try:
-
 		while not rospy.is_shutdown():
-			vel = Twist(Vector3(0,0,0), Vector3(0,0,0))
-
-			print(q)
-
+			w = (media[0] - TelaMeio)/640
 			if q != 0:
-
 				q = bumper(q)
 
 			if area > area2:
 				if len(media) != 0 and len(centro) != 0:
+					if media[0] < TelaMeio + margin and area > 400:
+						vel = Twist(Vector3(v,0,0),Vector3(0,0,-w))
 
-					if media[0] < TelaMeio + margin:
-						vel = Twist(Vector3(0.075,0,0),Vector3(0,0,-0.1))
+					elif media[0] > TelaMeio - margin and area > 400:
 
-					elif media[0] > TelaMeio - margin:
-
-						vel = Twist(Vector3(0.075,0,0),Vector3(0,0,0.1))
+						vel = Twist(Vector3(v,0,0),Vector3(0,0,w))
 
 					else:
-						vel = Twist(Vector3(0.1,0,0),Vector3(0,0,0))
+						vel = Twist(Vector3(v,0,0),Vector3(0,0,0))
 			elif area2 > area:
 				if len(media) != 0 and len(centro) != 0:
 
 					if media2[0] < TelaMeio + margin:
-						vel = Twist(Vector3(-0.075,0,0),Vector3(0,0,-0.1))
+						vel = Twist(Vector3(-v,0,0),Vector3(0,0,-w))
 
 					elif media2[0] > TelaMeio - margin:
 
-						vel = Twist(Vector3(-0.075,0,0),Vector3(0,0,0.1))
+						vel = Twist(Vector3(-v,0,0),Vector3(0,0,w))
 
 					else:
-						vel = Twist(Vector3(-0.1,0,0),Vector3(0,0,0))
+						vel = Twist(Vector3(-v,0,0),Vector3(0,0,0))
 			else:
-
 				vel = Twist(Vector3(0,0,0), Vector3(0,0,-0.1))
-
-
 			velocidade_saida.publish(vel)
 
 			rospy.sleep(0.1)
