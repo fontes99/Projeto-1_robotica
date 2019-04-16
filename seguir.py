@@ -8,7 +8,7 @@ rosrun topic_tools relay /raspicam_node/image/compressed /kamera
 rostopic pub -1 /cmd_vel geometry_msgs/Twist -- '[0.0, 0.0, 0.0]' '[0.0, 0.0, 0.0]'
 rqt_image_view
 
-'''
+
 	# Para renomear a *webcam*
 	# 
 	# 	rosrun topic_tools relay  /cv_camera/image_raw/compressed /kamera
@@ -21,12 +21,12 @@ rqt_image_view
 	# 
 	# 	rosrun topic_tools relay /raspicam_node/image/compressed /kamera
 	# 
+'''
 __author__ = ["Rachel P. B. Moraes", "Igor Montagner", "Fabio Miranda"]
 
 
 import rospy
 import numpy as np
-import tf
 import math
 import cv2
 import time
@@ -39,37 +39,57 @@ import cormodule2
 from std_msgs.msg import UInt8
 from sensor_msgs.msg import LaserScan
 from math import pi
+import visao_module
 
 ### ---------- FUNÇÕES -----------------
-
-def roda_todo_frame(imagem):
+def identifica_imagens(imagem):
 	print("frame")
-	global area
+	global objeto
 	global cv_image
-	global media
-	global centro
-
-	global area2
-	global cv_image2
-	global media2
-	global centro2
+	global controImg
+	global viu_Obj
+	global ObjPos
 
 	now = rospy.get_rostime()
 	imgtime = imagem.header.stamp
 	lag = now-imgtime # calcula o lag
 	delay = lag.nsecs
-	# print("delay ", "{:.3f}".format(delay/1.0E9))
 	if delay > atraso and check_delay==True:
 		print("Descartando por causa do delay do frame:", delay)
 		return 
 	try:
 		antes = time.clock()
 		cv_image = bridge.compressed_imgmsg_to_cv2(imagem, "bgr8")
-		cv_image2 = cv_image
-		media, centro, area =  cormodule.identifica_cor(cv_image,margin)
-		media2, centro2, area2 =  cormodule2.identifica_cor(cv_image2)
-		# print(media)
-		cv_image = cv2.add(cv_image,cv_image2)
+		controImg, imagem, resultados =  visao_module.processa(cv_image)
+		for r in resultados:
+			if r[0] == objeto:
+				print("Ini",r[2],"Fin",r[3],r[0])
+				ObjPos = r[2][0] + ((r[3][0] - r[2][0])/2)
+				viu_Obj == True
+		depois = time.clock()
+	except CvBridgeError as e:
+		print('ex', e)
+
+def identifica_cor(imagem):
+	global areaCor
+	global cv_image
+	global mediaCor
+	global centroCor
+	global viu_cor
+
+	now = rospy.get_rostime()
+	imgtime = imagem.header.stamp
+	lag = now-imgtime
+	delay = lag.nsecs
+	if delay > atraso and check_delay==True:
+		print("Descartando por causa do delay do frame:", delay)
+		return 
+	try:
+		antes = time.clock()
+		cv_image = bridge.compressed_imgmsg_to_cv2(imagem, "bgr8")
+		mediaCor, centroCor, areaCor =  cormodule.identifica_cor(cv_image,margin)
+		print(mediaCor)
+		viu_cor = True
 		depois = time.clock()
 		cv2.imshow("Camera", cv_image)
 	except CvBridgeError as e:
@@ -78,62 +98,23 @@ def roda_todo_frame(imagem):
 def bateu(dado):
 	global q
 	q = dado.data
- 	print(q)
 
 def escaneia(dado):
-	global v
-	global w
-
-	dist_minina = 0.15
-
-	dist = dado.ranges
-
-	dist_front = []
-	dist_back = []
-	dist_left = []
-	dist_right = []
-
-	dist_front.append(round(dist[0],2))
-	dist_front.append(round(dist[1],2))
-	dist_front.append(round(dist[-1],2))
-
-	dist_back.append(round(dist[180],2))
-	dist_back.append(round(dist[181],2))
-	dist_back.append(round(dist[179],2))
-
-	dist_left.append(round(dist[89],2))
-	dist_left.append(round(dist[90],2))
-	dist_left.append(round(dist[91],2))
-
-	dist_right.append(round(dist[270],2))
-	dist_right.append(round(dist[271],2))
-	dist_right.append(round(dist[269],2))
-
-	for i in dist_front:
-		if i < dist_minina and i != 0:
-			vel = Twist(Vector3(-v*2,0,0),Vector3(0,0,0))
-			pub.publish(vel)
+	global ang
+	index = 0
+	print("Scaner")
+	dist_minina = 0.3
+	print("Faixa valida: ", dado.range_min , " - ", dado.range_max)
+	for i in dado.ranges:
+		if i <= dist_minina and i > dado.range_min:
+			print(i)
+			ang = index
+			break
 		else:
-			pass
-	for i in dist_back:
-		if i < dist_minina and i != 0:
-			vel = Twist(Vector3(v*2,0,0),Vector3(0,0,0))
-			pub.publish(vel)
-		else:
-			pass
-	for i in dist_left:
-		if i < dist_minina and i != 0:
-			vel = Twist(Vector3(-v*2,0,0),Vector3(0,0,-w))
-			pub.publish(vel)
-		else:
-			pass
-	for i in dist_right:
-		if i < dist_minina and i != 0:
-			vel = Twist(Vector3(-v*2,0,0),Vector3(0,0,w))
-			pub.publish(vel)
-		else:
-			pass
+			index += 1
+
 def bumper(porta):
+	print("Bumper")
 	if porta == 1:
 		
 		pub.publish(back)
@@ -176,13 +157,29 @@ def bumper(porta):
 		rospy.sleep(tt)
 
 	return 0
-
 ### ----------------- DECLARAÇÃO DE VARIÁVEIS -----------------------
+bridge = CvBridge()
+CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
+	"bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
+	"dog", "horse", "motorbike", "person", "pottedplant", "sheep",
+	"sofa", "train", "tvmonitor"]
+for i in range(len(CLASSES)):
+	print(i, CLASSES[i])
+objeto = int(input("Indice de escolha: \n"))
+objeto = CLASSES[objeto]
+ObjPos = 0
+ang = 0
+
+obstaculo = False
+
+viu_Obj = False
+check_delay = False
+viu_cor = False
+
+w = pi/6
 
 v1 = 0.125
 v2 = 0.5
-w = pi/4
-
 go = Twist(Vector3(v1,0,0), Vector3(0,0,0))
 back = Twist(Vector3(-v2,0,0), Vector3(0,0,0))
 go2 = Twist(Vector3(v2,0,0), Vector3(0,0,0))
@@ -195,37 +192,24 @@ tt = .5
 timer = 0
 q = -1
 
-v = 0.2
-
-bridge = CvBridge()
-
+v = 0.1
 TelaMeio = 320
 margin = 20
 
-cv_image = None
-media = [0]
-centro = []
-atraso = 0.1E10 # 1 segundo e meio. Em nanossegundos
-area = 0.0 # Variavel com a area do maior contorno
+mediaCor = [0]
+centroCor = [0]
+atraso = 0.1E9
+areaCor = 0.0
 
 cv_image = None
-media2 = []
-centro2 = []
-area2= 0.0 # Variavel com a area do maior contorno
-
-check_delay = False 
-
+vel = Twist(Vector3(v/4,0,0), Vector3(0,0,0))
 ### -------------------------- PROGRAMA EM SI -------------------------------
 
 if __name__=="__main__":
 	rospy.init_node("seguir")
-
 	topico_imagem = "/kamera"
-	
-	recebedor = rospy.Subscriber(topico_imagem, CompressedImage, roda_todo_frame, queue_size=4, buff_size = 2**24)
-	# print("Usando ", topico_imagem)
-
-	velocidade_saida = rospy.Publisher("/cmd_vel", Twist, queue_size = 1)
+	recebedor_Cor = rospy.Subscriber(topico_imagem, CompressedImage, identifica_cor, queue_size=4, buff_size = 2**24)
+	recebedor_Img = rospy.Subscriber(topico_imagem, CompressedImage, identifica_imagens, queue_size=4, buff_size = 2**24)
 
 	pub = rospy.Publisher("/cmd_vel", Twist, queue_size = 3 )
 	hit = rospy.Subscriber("/bumper", UInt8, bateu)
@@ -233,42 +217,59 @@ if __name__=="__main__":
 
 	try:
 		while not rospy.is_shutdown():
-			w = (media[0] - TelaMeio)/640
 			if q != 0:
+				print('5')
 				q = bumper(q)
 
-			if area > area2:
-				if len(media) != 0 and len(centro) != 0:
-					if media[0] < TelaMeio + margin and area > 400:
-						vel = Twist(Vector3(v,0,0),Vector3(0,0,-w))
+			elif ang != 0:
+				print('6')
+				if ang < 90:
+					print('7')
+					vel = Twist(Vector3(-v,0,0),Vector3(0,0,w))
+				elif ang < 180:
+					print('8')
+					vel = Twist(Vector3(v,0,0),Vector3(0,0,-w))
+				elif ang < 270:
+					print('9')
+					vel = Twist(Vector3(v,0,0),Vector3(0,0,w))
+				elif ang >= 270:
+					print('10')
+					vel = Twist(Vector3(-v,0,0),Vector3(0,0,-w))
+				else:
+					print('11')
+					vel = Twist(Vector3(0,0,0), Vector3(0,0,-0.1))
+				ang = 0
+			elif ObjPos > 0:
+				if ObjPos < TelaMeio - margin:
+					print('12')
+					vel = Twist(Vector3(v,0,0),Vector3(0,0,-w))
+				elif ObjPos > TelaMeio - margin and ObjPos < TelaMeio + margin:
+					print('13')
+					vel = Twist(Vector3(v,0,0),Vector3(0,0,0))
+				elif ObjPos > TelaMeio + margin:
+					print('14')
+					vel = Twist(Vector3(v,0,0),Vector3(0,0,w))
+				ObjPos = 0
+			elif areaCor > 5000:
+				if mediaCor[0] < TelaMeio - margin:
+					print('1')
+					vel = Twist(Vector3(-v,0,0),Vector3(0,0,w))
+				elif mediaCor[0] >= TelaMeio - margin and mediaCor[0] <= TelaMeio + margin:
+					print('2')
+					vel = Twist(Vector3(-v,0,0),Vector3(0,0,0))
+				elif mediaCor[0] > TelaMeio + margin:
+					print('3')
+					vel = Twist(Vector3(-v,0,0),Vector3(0,0,-w))
 
-					elif media[0] > TelaMeio - margin and area > 400:
-
-						vel = Twist(Vector3(v,0,0),Vector3(0,0,w))
-
-					else:
-						vel = Twist(Vector3(v,0,0),Vector3(0,0,0))
-			elif area2 > area:
-				if len(media) != 0 and len(centro) != 0:
-
-					if media2[0] < TelaMeio + margin:
-						vel = Twist(Vector3(-v,0,0),Vector3(0,0,-w))
-
-					elif media2[0] > TelaMeio - margin:
-
-						vel = Twist(Vector3(-v,0,0),Vector3(0,0,w))
-
-					else:
-						vel = Twist(Vector3(-v,0,0),Vector3(0,0,0))
 			else:
+				print('15')
+				print("Entering Sentry mode")
 				vel = Twist(Vector3(0,0,0), Vector3(0,0,-0.1))
-			velocidade_saida.publish(vel)
-
+			print("Publish")
+			pub.publish(vel)
 			rospy.sleep(0.1)
 
 	except rospy.ROSInterruptException:
 	    print("Ocorreu uma exceção com o rospy")
 	    vel = Twist(Vector3(0,0,0),Vector3(0,0,0))
-	    velocidade_saida.publish(vel)
-
-
+	    pub.publish(vel)
